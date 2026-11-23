@@ -2,6 +2,7 @@
 
 require "json"
 require "stringio"
+require "tmpdir"
 
 require_relative "../test_helper"
 require_relative "../../lib/herb/dev/server"
@@ -136,6 +137,85 @@ module Dev
 
       refute_empty browser.socket.written
       assert_empty app.socket.written
+    end
+    
+    # Frames the server wrote to a fake socket, decoded back to messages.
+    def messages(client)
+      parser = WebSocket::Frame::Incoming::Client.new(version: 13)
+      client.socket.written.each { |data| parser << data }
+      decoded = []
+      while (frame = parser.next)
+        decoded << JSON.parse(frame.data)
+      end
+      decoded
+    end
+    
+    def note_frame(text, ref: 1)
+      JSON.generate({ type: "note", ref: ref, note: { note: text, page: { path: "/" }, source: { erb: { file: "app/views/a.html.erb", line: 3 } } } })
+    end
+    
+    test "a note frame is saved to the project and acknowledged to the sender" do
+      Dir.mktmpdir do |root|
+        server = Herb::Dev::Server.new(port: 0, project_path: root)
+        client = build_client
+        received = []
+        server.on_note { |note| received << note }
+    
+        server.handle_text_frame(client, note_frame("Smaller badge", ref: 7))
+    
+        saved = messages(client).last
+        assert_equal "note_saved", saved["type"]
+        assert_equal 7, saved["ref"]
+        assert_equal "app/views/a.html.erb", saved["note"]["file"]
+        assert_equal 3, saved["note"]["line"]
+        assert_equal ["Smaller badge"], server.notes.all.map { |n| n["note"] }
+        assert_equal ["Smaller badge"], received.map { |n| n["note"] }
+      end
+    end
+    
+    test "an empty note is refused with a reason" do
+      Dir.mktmpdir do |root|
+        server = Herb::Dev::Server.new(port: 0, project_path: root)
+        client = build_client
+    
+        server.handle_text_frame(client, note_frame(" ", ref: 2))
+    
+        failed = messages(client).last
+        assert_equal "note_failed", failed["type"]
+        assert_equal 2, failed["ref"]
+        assert_empty server.notes.all
+      end
+    end
+    
+    test "a server with no project refuses notes" do
+      server = Herb::Dev::Server.new(port: 0)
+      client = build_client
+    
+      server.handle_text_frame(client, note_frame("Hello"))
+    
+      assert_equal "note_failed", messages(client).last["type"]
+    end
+    
+    test "a browser saying hello gets its project's recent notes" do
+      Dir.mktmpdir do |root|
+        server = Herb::Dev::Server.new(port: 0, project_path: root)
+        server.notes.add({ "note" => "Earlier" })
+        client = build_client
+    
+        server.handle_text_frame(client, JSON.generate({ type: "hello", role: "browser" }))
+    
+        listed = messages(client).last
+        assert_equal "notes", listed["type"]
+        assert_equal ["Earlier"], listed["notes"].map { |n| n["note"] }
+        refute listed["notes"].first.key?("html"), "the browser gets a summary, not the page HTML"
+      end
+    end
+    
+    test "the summary sent to browsers leaves out the element HTML" do
+      summary = Herb::Dev::Protocol.note_summary({ "id" => "a", "note" => "x", "element" => { "html" => "<p>" } })
+    
+      refute summary.key?(:element)
+      assert_equal "a", summary[:id]
     end
   end
 end

@@ -10,18 +10,22 @@ Herb.ensure_installed("websocket")
 
 require_relative "protocol"
 require_relative "server_entry"
+require_relative "notes"
 
 module Herb
   module Dev
     class Server
       DEFAULT_PORT = 8592 #: Integer # "HERB".bytes.map { (it - 64).digits.sum }.join
       HANDSHAKE_TIMEOUT = 5 #: Integer
+      NOTES_POLL_INTERVAL = 1 #: Integer
+      RECENT_NOTES = 20 #: Integer
       ROLES = [:browser, :app].freeze #: Array[Symbol]
 
       Client = Struct.new(:socket, :version, :mutex, :role, keyword_init: true)
 
       attr_reader :port #: Integer
       attr_reader :project_path #: String?
+      attr_reader :notes #: Notes?
 
       #: (?port: Integer, ?project_path: String?, ?kind: String) -> void
       def initialize(port: DEFAULT_PORT, project_path: nil, kind: "standalone")
@@ -35,6 +39,9 @@ module Herb
         @entry = nil
         @on_client = nil #: (^(Symbol, Integer) -> void)?
         @on_welcome = nil #: (^() -> Array[Hash[Symbol, untyped]])?
+        @on_note = nil #: (^(Hash[String, untyped]) -> void)?
+        @notes = project_path ? Notes.new(project_path) : nil
+        @notes_thread = nil
       end
 
       #: () -> void
@@ -51,6 +58,8 @@ module Herb
             break
           end
         end
+
+        watch_notes
       end
 
       #: () -> void
@@ -63,6 +72,7 @@ module Herb
         safely_close(@server)
 
         @accept_thread&.kill
+        @notes_thread&.kill
         @entry&.remove
       end
 
@@ -98,6 +108,12 @@ module Herb
       #: () { () -> Array[Hash[Symbol, untyped]] } -> void
       def on_welcome(&block)
         @on_welcome = block
+      end
+
+      # Called with each note a browser sends, after it is saved.
+      #: () { (Hash[String, untyped]) -> void } -> void
+      def on_note(&block)
+        @on_note = block
       end
 
       #: (Client) -> void
@@ -162,16 +178,75 @@ module Herb
         message = JSON.parse(data)
 
         return unless message.is_a?(Hash)
-        return unless message["type"] == "hello"
 
-        role = message["role"].to_s.to_sym
+        case message["type"]
+        when "hello"
+          role = message["role"].to_s.to_sym
 
-        client.role = role if ROLES.include?(role)
+          client.role = role if ROLES.include?(role)
+
+          send_to(client, Protocol.notes(notes: @notes.all.last(RECENT_NOTES))) if @notes && client.role == :browser
+        when "note"
+          handle_note(client, message)
+        end
       rescue JSON::ParserError
         nil
       end
 
       private
+
+      #: (Client, Hash[String, untyped]) -> void
+      def handle_note(client, message)
+        ref = message["ref"]
+
+        unless @notes
+          send_to(client, Protocol.note_failed(ref: ref, message: "The dev server has no project, so it cannot keep notes."))
+          return
+        end
+
+        payload = message["note"]
+        payload = {} unless payload.is_a?(Hash)
+        note = @notes.add(payload)
+
+        send_to(client, Protocol.note_saved(ref: ref, note: note))
+        @on_note&.call(note)
+      rescue Notes::Error, SystemCallError => e
+        send_to(client, Protocol.note_failed(ref: ref, message: e.message))
+      end
+
+      # Notes are closed by `herb notes done`, in another process, so the server
+      # watches the file and tells every browser when one changes.
+      #: () -> void
+      def watch_notes
+        notes = @notes
+        return unless notes
+
+        notes.changed_since_last_check
+
+        @notes_thread = Thread.new do
+          loop do
+            sleep NOTES_POLL_INTERVAL
+
+            notes.changed_since_last_check.each do |note|
+              broadcast(Protocol.note_updated(note: note), to: :browsers)
+            end
+          rescue StandardError => e
+            warn "[Herb Dev Server] notes: #{e.class}: #{e.message}"
+          end
+        end
+      end
+
+      #: (Client, Hash[Symbol, untyped]) -> void
+      def send_to(client, message)
+        frame = WebSocket::Frame::Outgoing::Server.new(version: client.version, data: JSON.generate(message), type: :text)
+
+        client.mutex.synchronize do
+          client.socket.write(frame.to_s)
+          client.socket.flush
+        end
+      rescue StandardError
+        nil
+      end
 
       #: () -> Array[Hash[Symbol, untyped]]
       def broken_entries

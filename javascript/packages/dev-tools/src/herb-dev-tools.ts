@@ -6,6 +6,7 @@ import { HerbClient } from './dev-server/client.js'
 import { HotReload } from './dev-server/hot-reload.js'
 import { HerbOverlay } from './overlay/overlay.js'
 import { RuntimePanel } from './runtime/panel.js'
+import { Notes } from './notes/notes.js'
 
 import type { DiagnosticSink, HerbClientOptions } from './dev-server/types.js'
 import type { RuntimeReportHandle } from './runtime/panel.js'
@@ -21,6 +22,7 @@ export interface HerbDevToolsOptions {
   devServer?: boolean | HerbClientOptions
   overlay?: boolean
   runtimePanel?: boolean
+  notes?: boolean
 }
 
 declare global {
@@ -62,6 +64,7 @@ export class HerbDevTools {
   private devServerReports = new Map<string, RuntimeReportHandle>()
   private devToolsOverlay: HerbOverlay | null = null
   private panel: RuntimePanel | null = null
+  private devToolsNotes: Notes | null = null
   private styleElement: HTMLStyleElement | null = null
 
   private constructor(private options: HerbDevToolsOptions) {}
@@ -80,6 +83,9 @@ export class HerbDevTools {
 
     this.panel?.destroy()
     this.panel = null
+
+    this.devToolsNotes?.destroy()
+    this.devToolsNotes = null
 
     this.styleElement?.remove()
     this.styleElement = null
@@ -141,7 +147,21 @@ export class HerbDevTools {
 
       this.hotReload = new HotReload({ sink: () => this.diagnosticSink() })
 
-      this.devServerClient = new HerbClient({ hotReload: this.hotReload, ...clientOptions, diagnostics: () => this.diagnosticSink() })
+      this.devServerClient = new HerbClient({
+        hotReload: this.hotReload,
+        ...clientOptions,
+        diagnostics: () => this.diagnosticSink(),
+        onNotes: notes => this.devToolsNotes?.load(notes),
+        onNoteUpdated: note => this.devToolsNotes?.update(note),
+      })
+
+      // Notes travel over the dev server, so they need it.
+      if (this.options.notes !== false) {
+        const client = this.devServerClient
+
+        this.devToolsNotes = new Notes({ send: note => client.sendNote(note) })
+      }
+
       this.devServerClient.connect()
     }
 

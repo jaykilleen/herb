@@ -60,6 +60,8 @@ module Herb
 
         websocket.on_welcome { pipeline.broken_entries }
 
+        websocket.on_note { |note| paint_note(note) }
+
         websocket.on_client do |event, count|
           announce_first_change
           paint_client(event, count)
@@ -293,6 +295,18 @@ module Herb
         badge = event == :connected ? bold(fg("+ client ", 75)) : bold(fg("- client ", 241))
 
         puts "    #{timestamp} #{badge} #{fg(event.to_s, 250)} #{fg("(#{count} open)", 241)}"
+      end
+
+      #: (Hash[String, untyped]) -> void
+      def paint_note(note)
+        timestamp = fg(Time.now.strftime("%H:%M:%S.%L"), 241)
+        badge = bold(fg("+ note   ", 214))
+        where = Protocol.note_summary(note)
+        location = [where[:file], where[:line]].compact.join(":")
+        text = note["note"].to_s.gsub(/\s+/, " ")
+        text = "#{text[0, 60]}..." if text.length > 63
+
+        puts "    #{timestamp} #{badge} #{fg(note["id"].to_s, 250)} #{fg(location, 245)} #{text}"
       end
 
       #: (Watcher::Event, Classifier::Classification?) -> void

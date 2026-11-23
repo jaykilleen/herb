@@ -107,6 +107,7 @@ class Herb::CLI
         bundle exec herb diff [old] [new]           Diff two files and show the minimal set of AST differences.
         bundle exec herb playground [file]          Open the content of the source file in the playground.
         bundle exec herb dev                        Start the dev server and watch for file changes.
+        bundle exec herb notes [command]            List, watch and close notes left on elements in the browser.
         bundle exec herb version                    Prints the versions of the Herb gem and the libherb library.
 
         bundle exec herb actionview check [path]    Check if render calls resolve to valid partial files.
@@ -214,6 +215,8 @@ class Herb::CLI
                     @file = @args[1]
                     run_dev_server
                   end
+                when "notes"
+                  run_notes_command
                 when "actionview"
                   run_actionview_command
                 when "diff"
@@ -377,7 +380,7 @@ class Herb::CLI
   end
 
   def options
-    return if ["lint", "format", "print", "highlight", "lsp"].include?(@command)
+    return if ["lint", "format", "print", "highlight", "lsp", "notes"].include?(@command)
 
     option_parser.parse!(@args)
   end
@@ -1067,6 +1070,12 @@ class Herb::CLI
   def dev_status
     require_relative "dev/runner"
     Herb::Dev::Runner.new.status
+  end
+
+  def run_notes_command
+    require_relative "dev/notes_command"
+
+    exit(Herb::Dev::NotesCommand.new(@args.drop(1)).run)
   end
 
   def run_dev_server

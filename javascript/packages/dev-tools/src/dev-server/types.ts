@@ -1,5 +1,6 @@
 import type { RuntimeDiagnostic } from "../runtime/report"
 import type { TemplateManifest } from "@herb-tools/client"
+import type { NoteSummary } from "../notes/notes"
 
 export interface HelloMessage {
   type: "hello"
@@ -76,7 +77,31 @@ export interface AssetMessage {
   file: string
 }
 
-export type HerbMessage = WelcomeMessage | SchemaMessage | InvalidateMessage | ErrorMessage | AssetMessage
+export interface NotesMessage {
+  type: "notes"
+  notes: NoteSummary[]
+}
+
+export interface NoteSavedMessage {
+  type: "note_saved"
+  ref: number
+  note: NoteSummary
+}
+
+export interface NoteFailedMessage {
+  type: "note_failed"
+  ref: number
+  message: string
+}
+
+export interface NoteUpdatedMessage {
+  type: "note_updated"
+  note: NoteSummary
+}
+
+export type NoteMessage = NotesMessage | NoteSavedMessage | NoteFailedMessage | NoteUpdatedMessage
+
+export type HerbMessage = WelcomeMessage | SchemaMessage | InvalidateMessage | ErrorMessage | AssetMessage | NoteMessage
 export type ConnectionState = "connected" | "disconnected" | "given-up"
 export type MessageHandler = (message: HerbMessage) => void
 
@@ -113,6 +138,8 @@ export interface HerbClientOptions {
   onInvalidate?: (message: InvalidateMessage) => void
   onError?: (message: ErrorMessage) => void
   onAsset?: (message: AssetMessage) => void
+  onNotes?: (notes: NoteSummary[]) => void
+  onNoteUpdated?: (note: NoteSummary) => void
   onConnect?: () => void
   onDisconnect?: () => void
 }

@@ -48,6 +48,46 @@ module Herb
         }
       end
 
+      # The browser gets the parts of a note it shows: never the page HTML it sent.
+      #: (Hash[String, untyped]) -> Hash[Symbol, untyped]
+      def self.note_summary(note)
+        source = note["source"].is_a?(Hash) ? note["source"] : {}
+        erb = source["erb"].is_a?(Hash) ? source["erb"] : nil
+        templates = source["templates"].is_a?(Array) ? source["templates"] : []
+
+        {
+          id: note["id"],
+          note: note["note"],
+          status: note["status"],
+          reply: note["reply"],
+          path: note.dig("page", "path"),
+          file: erb ? erb["file"] : templates.first&.dig("file"),
+          line: erb ? erb["line"] : nil,
+          received_at: note["received_at"],
+          done_at: note["done_at"],
+        }
+      end
+
+      #: (notes: Array[Hash[String, untyped]]) -> Hash[Symbol, untyped]
+      def self.notes(notes:)
+        { type: "notes", notes: notes.map { |note| note_summary(note) } }
+      end
+
+      #: (ref: untyped, note: Hash[String, untyped]) -> Hash[Symbol, untyped]
+      def self.note_saved(ref:, note:)
+        { type: "note_saved", ref: ref, note: note_summary(note) }
+      end
+
+      #: (ref: untyped, message: String) -> Hash[Symbol, untyped]
+      def self.note_failed(ref:, message:)
+        { type: "note_failed", ref: ref, message: message }
+      end
+
+      #: (note: Hash[String, untyped]) -> Hash[Symbol, untyped]
+      def self.note_updated(note:)
+        { type: "note_updated", note: note_summary(note) }
+      end
+
       #: (file: String, version: String?, node_path: Array[Integer], scope: Symbol) -> Hash[Symbol, untyped]
       def self.invalidate(file:, version:, node_path:, scope:)
         {

@@ -7,10 +7,13 @@ import { UnavailableAlert } from "./unavailable-alert"
 import { diagnosticsFromError, diagnosticsFromBrokenFile } from "./diagnostics"
 import { heldRuntime } from "./runtime-handle"
 
-import type { AssetMessage, BrokenFile, DiagnosticSink, HerbClientOptions, HerbMessage, WelcomeMessage, SchemaMessage, InvalidateMessage, ErrorMessage } from "./types"
+import type { AssetMessage, BrokenFile, DiagnosticSink, HerbClientOptions, HerbMessage, WelcomeMessage, SchemaMessage, InvalidateMessage, ErrorMessage, NoteSavedMessage, NoteFailedMessage } from "./types"
+import type { Note } from "../notes/source"
+import type { NoteSummary } from "../notes/notes"
 
 const DEFAULT_PORT = 8592
 const UNAVAILABLE_HINT_AFTER_ATTEMPTS = 3
+const NOTE_TIMEOUT = 5000
 
 type ClientState = "connected" | "disconnected" | "given-up"
 
@@ -22,6 +25,8 @@ export class HerbClient {
   private hasConnectedBefore = false
   private projectMatch: boolean | null = null
   private connectionDot: ConnectionDot
+  private noteRef = 0
+  private pendingNotes = new Map<number, { resolve: (note: NoteSummary) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>()
 
   constructor(options: HerbClientOptions = {}) {
     this.options = options
@@ -65,6 +70,25 @@ export class HerbClient {
 
   getPort(): number {
     return this.port
+  }
+
+  // Sends a note to the dev server and resolves once it is saved.
+  sendNote(note: Note): Promise<NoteSummary> {
+    if (this.state !== "connected") {
+      return Promise.reject(new Error("the Herb dev server is not connected. Start it with `bundle exec herb dev`."))
+    }
+
+    const ref = ++this.noteRef
+
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pendingNotes.delete(ref)
+        reject(new Error("the Herb dev server did not answer. It may be a version without notes."))
+      }, NOTE_TIMEOUT)
+
+      this.pendingNotes.set(ref, { resolve, reject, timer })
+      this.connection.send({ type: "note", ref, note })
+    })
   }
 
   refreshConnection(): void {
@@ -149,6 +173,16 @@ export class HerbClient {
       case "asset":
         this.handleAsset(message)
         break
+      case "notes":
+        this.options.onNotes?.(message.notes)
+        break
+      case "note_updated":
+        this.options.onNoteUpdated?.(message.note)
+        break
+      case "note_saved":
+      case "note_failed":
+        this.settleNote(message)
+        break
     }
   }
 
@@ -203,6 +237,21 @@ export class HerbClient {
     this.getDiagnostics()?.report(message.file, diagnosticsFromError(message))
 
     this.options.hotReload?.onError(message)
+  }
+
+  private settleNote(message: NoteSavedMessage | NoteFailedMessage): void {
+    const pending = this.pendingNotes.get(message.ref)
+
+    if (!pending) return
+
+    clearTimeout(pending.timer)
+    this.pendingNotes.delete(message.ref)
+
+    if (message.type === "note_saved") {
+      pending.resolve(message.note)
+    } else {
+      pending.reject(new Error(message.message))
+    }
   }
 
   private updateState(state: ClientState): void {

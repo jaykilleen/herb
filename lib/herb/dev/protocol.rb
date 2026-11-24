@@ -54,6 +54,7 @@ module Herb
         source = note["source"].is_a?(Hash) ? note["source"] : {}
         erb = source["erb"].is_a?(Hash) ? source["erb"] : nil
         templates = source["templates"].is_a?(Array) ? source["templates"] : []
+        elements = note["elements"].is_a?(Array) ? note["elements"].size : 1
 
         {
           id: note["id"],
@@ -63,6 +64,7 @@ module Herb
           path: note.dig("page", "path"),
           file: erb ? erb["file"] : templates.first&.dig("file"),
           line: erb ? erb["line"] : nil,
+          elements: elements,
           received_at: note["received_at"],
           done_at: note["done_at"],
         }

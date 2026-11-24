@@ -33,6 +33,7 @@ module Herb
         Options:
           --path PATH    Project directory (default: current directory)
           --open         With watch: print notes that are already open first
+          --once         With watch: exit after the first note (for agents that wake when a command ends)
           --json         With list and all: print JSON
       USAGE
 
@@ -43,6 +44,7 @@ module Herb
         @path = "."
         @reply = nil
         @include_open = false
+        @once = false
         @json = false
       end
 
@@ -74,6 +76,7 @@ module Herb
           parser.on("--path PATH") { |value| @path = value }
           parser.on("--reply TEXT") { |value| @reply = value }
           parser.on("--open") { @include_open = true }
+          parser.on("--once") { @once = true }
           parser.on("--json") { @json = true }
         end.parse!(@args)
       end
@@ -119,8 +122,13 @@ module Herb
       def watch
         @out.sync = true if @out.respond_to?(:sync=)
 
-        notes.watch(include_open: @include_open) do |note|
-          @out.puts line(note) if note["status"] == "open"
+        catch(:first_note) do
+          notes.watch(include_open: @include_open) do |note|
+            next unless note["status"] == "open"
+
+            @out.puts line(note)
+            throw :first_note if @once
+          end
         end
 
         0
@@ -147,8 +155,9 @@ module Herb
         text = note["note"].to_s.gsub(/\s+/, " ").strip
         status = note["status"] == "open" ? "" : " [#{note["status"]}]"
         where = location.empty? ? summary[:path] : location
+        more = summary[:elements] > 1 ? " and #{summary[:elements] - 1} more" : ""
 
-        "Herb note #{note["id"]}#{status} (#{where}): #{text}"
+        "Herb note #{note["id"]}#{status} (#{where}#{more}): #{text}"
       end
 
       #: (Integer, ?String?) -> Integer

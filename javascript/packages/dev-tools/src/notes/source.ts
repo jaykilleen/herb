@@ -32,46 +32,65 @@ export interface NoteSource {
   templates: NoteTemplate[]
 }
 
+export interface NoteElement {
+  selector: string
+  tag: string
+  id: string | null
+  classes: string[]
+  text: string
+  html: string
+  rect: { x: number; y: number; width: number; height: number }
+  styles: Record<string, string>
+}
+
 export interface Note {
   schema: string
   note: string
   page: { url: string; path: string; title: string }
-  element: {
-    selector: string
-    tag: string
-    id: string | null
-    classes: string[]
-    text: string
-    html: string
-    rect: { x: number; y: number; width: number; height: number }
-    styles: Record<string, string>
-  }
+  // The first element the note is about, and where it came from.
+  element: NoteElement
   source: NoteSource
+  // Every element the note is about, in the order they were picked, each with
+  // its own source. The first is the same as `element` and `source`.
+  elements: Array<NoteElement & { source: NoteSource }>
   viewport: { width: number; height: number; dpr: number }
   sent_at: string
 }
 
-export function buildNote(element: Element, text: string): Note {
-  const rect = element.getBoundingClientRect()
-  const html = element as HTMLElement
+// A note about one element, or several picked together.
+export function buildNote(target: Element | Element[], text: string): Note {
+  const targets = Array.isArray(target) ? target : [target]
+
+  if (targets.length === 0) throw new Error("A note needs at least one element.")
+
+  const elements = targets.map(element => ({ ...describeElement(element), source: sourceFor(element) }))
+  const { source, ...first } = elements[0]
 
   return {
     schema: NOTE_SCHEMA,
     note: text.trim(),
     page: { url: location.href, path: location.pathname, title: document.title },
-    element: {
-      selector: cssPath(element),
-      tag: element.tagName.toLowerCase(),
-      id: element.id || null,
-      classes: [...element.classList],
-      text: squish(html.innerText || element.textContent || "").slice(0, MAX_TEXT),
-      html: element.outerHTML.slice(0, MAX_HTML),
-      rect: { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) },
-      styles: pickStyles(element),
-    },
-    source: sourceFor(element),
+    element: first,
+    source,
+    elements,
     viewport: { width: window.innerWidth, height: window.innerHeight, dpr: window.devicePixelRatio },
     sent_at: new Date().toISOString(),
+  }
+}
+
+export function describeElement(element: Element): NoteElement {
+  const rect = element.getBoundingClientRect()
+  const html = element as HTMLElement
+
+  return {
+    selector: cssPath(element),
+    tag: element.tagName.toLowerCase(),
+    id: element.id || null,
+    classes: [...element.classList],
+    text: squish(html.innerText || element.textContent || "").slice(0, MAX_TEXT),
+    html: element.outerHTML.slice(0, MAX_HTML),
+    rect: { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) },
+    styles: pickStyles(element),
   }
 }
 

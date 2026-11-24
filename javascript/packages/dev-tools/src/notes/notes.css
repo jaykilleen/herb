@@ -35,6 +35,55 @@
   white-space: nowrap;
 }
 
+.mark {
+  position: fixed;
+  pointer-events: none;
+  z-index: 2147483645;
+  border: 2px solid var(--herb-accent-strong);
+  background: color-mix(in srgb, var(--herb-accent) 16%, transparent);
+  border-radius: 3px;
+}
+
+.mark .number {
+  position: absolute;
+  left: -10px;
+  top: -10px;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--herb-accent-strong);
+  color: #ffffff;
+  font: 700 11px/20px var(--herb-sans);
+  text-align: center;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.heading {
+  font: 600 12px var(--herb-sans);
+  color: var(--herb-ink-muted);
+}
+
+button.dismiss {
+  border: 0;
+  background: transparent;
+  color: var(--herb-ink-faint);
+  font: 600 14px/1 var(--herb-sans);
+  padding: 4px 6px;
+}
+
+button.dismiss:hover {
+  color: var(--herb-ink);
+  background: var(--herb-surface-soft);
+}
+
 .box {
   position: fixed;
   z-index: 2147483647;
@@ -178,6 +227,12 @@ button.send {
   font: 12px/1.4 var(--herb-sans);
   padding: 10px 12px;
   display: none;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.notice-text {
+  flex: 1;
 }
 
 .notice strong {

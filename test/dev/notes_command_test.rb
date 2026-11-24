@@ -35,6 +35,20 @@ module Dev
       end
     end
 
+    test "a note on several elements says how many more" do
+      Dir.mktmpdir do |root|
+        note = Herb::Dev::Notes.new(root).add(
+          "note" => "Line these up",
+          "source" => { "erb" => { "file" => "app/views/a.html.erb", "line" => 7 } },
+          "elements" => [{ "tag" => "h2" }, { "tag" => "p" }, { "tag" => "a" }]
+        )
+
+        _code, out = run_command(root)
+
+        assert_equal "Herb note #{note["id"]} (app/views/a.html.erb:7 and 2 more): Line these up\n", out
+      end
+    end
+
     test "list says so when there are none" do
       Dir.mktmpdir do |root|
         assert_equal [0, "No notes.\n"], run_command(root, "list")
@@ -62,6 +76,18 @@ module Dev
 
         assert_equal 0, code
         assert_equal "Smaller", JSON.parse(out)["note"]
+      end
+    end
+
+    test "watch --once exits after the first open note" do
+      Dir.mktmpdir do |root|
+        add(root, "Already open")
+
+        code, out = run_command(root, "watch", "--open", "--once")
+
+        assert_equal 0, code
+        assert_equal 1, out.lines.size
+        assert_match(/Already open/, out)
       end
     end
 
